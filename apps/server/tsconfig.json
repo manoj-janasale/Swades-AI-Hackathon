@@ -1,0 +1,14 @@
+{
+  "extends": "/Users/manojjanasale/placement_projects/Swades-AI-Hackathon/packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "strictNullChecks": true
+  }
+}
