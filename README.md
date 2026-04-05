@@ -1,143 +1,102 @@
-# Reliable Recording Chunking Pipeline
+# Swades-AI-Hackathon
 
-An assignment for building a reliable chunking setup that ensures recording data stays accurate in all cases — no data loss, no silent failures.
+A local monorepo with a Next.js web app, a Hono backend, and a Python audio transcription helper.
 
-## How It Works
+## What this repo contains
 
-```
-Client (Browser)
-    │
-    ├── 1. Record & chunk data on the client side
-    ├── 2. Store chunks in OPFS (Origin Private File System)
-    ├── 3. Upload chunks to a storage bucket
-    ├── 4. On success → acknowledge (ack) to the database
-    │
-    └── Recovery: if DB has ack but chunk is missing from bucket
-        └── Re-send from OPFS → bucket
-```
+- `apps/web` — Next.js frontend app with upload and transcription UI
+- `apps/server` — Hono backend app (optional)
+- `workers/transcriber` — Python transcription helper using `faster_whisper`
+- `packages/*` — shared workspace packages for config, env, UI, and db
 
-**Main objective:** In all cases, the recording data stays accurate. OPFS acts as the durable client-side buffer — chunks are only cleared after the bucket and DB are both confirmed in sync.
+## Prerequisites
 
-### Flow Details
+- Node.js 20+ and npm
+- Python 3.9+
+- `ffmpeg` installed on macOS:  `brew install ffmpeg`
+- Optional: Bun if you want to run `apps/server` with Bun
 
-1. **Client-side chunking** — Recording data is split into chunks in the browser
-2. **OPFS storage** — Each chunk is persisted to the Origin Private File System before any network call, so nothing is lost if the tab closes or the network drops
-3. **Bucket upload** — Chunks are uploaded to a storage bucket (can be a local bucket for testing, e.g. MinIO or a local S3-compatible store)
-4. **DB acknowledgment** — Once the bucket confirms receipt, an ack record is written to the database
-5. **Reconciliation** — If the DB shows an ack but the chunk is missing from the bucket (e.g. bucket purge, replication lag), the client re-uploads from OPFS to restore consistency
+## Install dependencies
 
-## Tech Stack
-
-- **Next.js** — Frontend (App Router)
-- **Hono** — Backend API server
-- **Bun** — Runtime
-- **Drizzle ORM + PostgreSQL** — Database
-- **TailwindCSS + shadcn/ui** — UI
-- **Turborepo** — Monorepo build system
-
-## Getting Started
+From the repo root:
 
 ```bash
+cd /Users/manojjanasale/placement_projects/Swades-AI-Hackathon
 npm install
 ```
 
-### Database Setup
+## Python transcription helper setup
 
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` with your PostgreSQL connection details.
-3. Apply the schema:
+Create and activate the Python virtual environment, then install the transcription dependencies:
 
 ```bash
-npm run db:push
+cd workers/transcriber
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install faster-whisper av onnxruntime
 ```
 
-### Run Development
+If you already have the venv, activate it with:
 
 ```bash
+source workers/transcriber/.venv/bin/activate
+```
+
+## Run the web app
+
+Start the Next.js app from `apps/web`:
+
+```bash
+cd apps/web
 npm run dev
 ```
 
-- Web app: [http://localhost:3001](http://localhost:3001)
-- API server: [http://localhost:3000](http://localhost:3000)
+Then open:
 
-## Load Testing
+- http://localhost:3001
 
-Target: **300,000 requests** to validate the chunking pipeline under heavy load.
+The web app includes the upload/transcribe UI and the `app/upload` and `app/transcribe-all` API routes.
 
-### Setup
+## Optional: Run the backend server
 
-Use a load testing tool like [k6](https://k6.io), [autocannon](https://github.com/mcollina/autocannon), or [artillery](https://artillery.io) to simulate concurrent chunk uploads.
-
-Example with **k6**:
-
-```js
-import http from "k6/http";
-import { check } from "k6";
-
-export const options = {
-  scenarios: {
-    chunk_uploads: {
-      executor: "constant-arrival-rate",
-      rate: 5000,           // 5,000 req/s
-      timeUnit: "1s",
-      duration: "1m",       // → 300K requests in 60s
-      preAllocatedVUs: 500,
-      maxVUs: 1000,
-    },
-  },
-};
-
-export default function () {
-  const payload = JSON.stringify({
-    chunkId: `chunk-${__VU}-${__ITER}`,
-    data: "x".repeat(1024), // 1KB dummy chunk
-  });
-
-  const res = http.post("http://localhost:3000/api/chunks/upload", payload, {
-    headers: { "Content-Type": "application/json" },
-  });
-
-  check(res, {
-    "status 200": (r) => r.status === 200,
-  });
-}
-```
-
-Run:
+The backend app is in `apps/server`. It uses Bun in the current package scripts.
 
 ```bash
-k6 run load-test.js
+cd apps/server
+bun install
+bun run --hot src/index.ts
 ```
 
-### What to Validate
+Or from the repo root if Bun and Turbo are configured:
 
-- **No data loss** — every ack in the DB has a matching chunk in the bucket
-- **OPFS recovery** — chunks survive client disconnects and can be re-uploaded
-- **Throughput** — server handles sustained 5K req/s without dropping chunks
-- **Consistency** — reconciliation catches and repairs any bucket/DB mismatches after the run
-
-## Project Structure
-
-```
-recoding-assignment/
-├── apps/
-│   ├── web/         # Frontend (Next.js) — chunking, OPFS, upload logic
-│   └── server/      # Backend API (Hono) — bucket upload, DB ack
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── db/          # Drizzle ORM schema & queries
-│   ├── env/         # Type-safe environment config
-│   └── config/      # Shared TypeScript config
+```bash
+npm run dev:server
 ```
 
-## Available Scripts
+## Notes
 
-- `npm run dev` — Start all apps in development mode
-- `npm run build` — Build all apps
-- `npm run dev:web` — Start only the web app
-- `npm run dev:server` — Start only the server
-- `npm run check-types` — TypeScript type checking
-- `npm run db:push` — Push schema changes to database
-- `npm run db:generate` — Generate database client/types
-- `npm run db:migrate` — Run database migrations
-- `npm run db:studio` — Open database studio UI
+- The frontend upload routes expect the local Python transcriber to be available at `workers/transcriber/transcribe.py`.
+- If the web app cannot find the Python script, make sure the root path is correct and the venv is activated.
+
+## Recommended commands
+
+```bash
+# Install everything
+npm install
+
+# Start the web app
+cd apps/web
+npm run dev
+
+# Start the Python transcription env if needed
+cd workers/transcriber
+source .venv/bin/activate
+```
+
+## Useful commands
+
+- `npm install` — install all workspace dependencies
+- `npm run dev:web` — start only the Next.js web app
+- `npm run dev:server` — start only the backend server
+- `npm run build` — build workspace packages
